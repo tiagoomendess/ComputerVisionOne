@@ -25,8 +25,17 @@ typedef enum
 
 typedef enum
 {
-	ARROWLEFT, ARROWRIGHT, ARROWUP, CAR, FORBIDDEN, HIGHTWAY, STOP
+	ARROWLEFT = 1, ARROWRIGHT, ARROWUP, CAR, FORBIDDEN, HIGHWAY, STOP
 } Signal;
+
+typedef enum
+{
+	ERROR, SUCCESS, WARNING, INFO
+} LogType;
+
+typedef enum {
+	false, true
+} bool;
 
 int drawBoundingBox(IVC *imagem, OVC *blobs, int *nlabels, COLOR *color);
 COLOR* newColor(int r, int g, int b);
@@ -34,8 +43,17 @@ int paintPixel(IVC *imagem, int position, COLOR *cor);
 int meanBlur(IVC *src, IVC *dst, int kernel);
 int drawGravityCentre(IVC *imagem, OVC *blobs, int *nlabels, COLOR *color);
 IVC *vc_image_copy(IVC *src);
-int blueSignalsToBinary(IVC *src, IVC *dst);
-int redSignalsToBinary(IVC *src, IVC *dst);
+int blueSignalsToBinary(IVC *src, IVC *dst, IVC *hsvImage);
+int redSignalsToBinary(IVC *src, IVC *dst, IVC *hsvImage);
+int analiza(char *caminho);
+int getSignals(IVC *src, IVC *dst, IVC *hsvImage);
+IVC* sumBinaryImages(IVC *imagem1, IVC *imagem2);
+void log(LogType tipo, char *mensagem);
+Shape getBlobShape(OVC blob, IVC *image);
+int analizaBlobs(OVC *blobs, int nlabels, IVC *labels, IVC *original, IVC *binaryImage);
+Signal identifySignal(OVC blob, Shape shape, IVC *original, IVC *binaria, IVC *hsvImage);
+bool isBlue(int hue, int sat, int value);
+bool isRed(int hue, int sat, int value);
 
 int vc_rgb_to_hsv(IVC *srcdst);
 int value100To255(int value);

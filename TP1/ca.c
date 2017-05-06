@@ -11,18 +11,245 @@
 //FUNÇÔES FEITAS NA AULA ==============================================
 #pragma region TRABALHO
 
+
+int analiza(char *caminho) {
+
+	log(INFO, "A analizar imagem...");
+	
+	IVC *aAnalizar = vc_read_image(caminho);
+	if (aAnalizar == NULL) {
+		log(ERROR, "A imagem nao foi encontrada.");
+		return 0;
+	}
+
+	IVC *hsvImage;
+	IVC *blured = vc_image_new(aAnalizar->width, aAnalizar->height, aAnalizar->channels, aAnalizar->levels);
+	IVC *binary = vc_image_new(aAnalizar->width, aAnalizar->height, 1, 255);
+	IVC *blobLabels = vc_image_new(aAnalizar->width, aAnalizar->height, 1, 255);
+	Shape shape;
+	int errorControl;
+	int nlabels;
+	OVC *blobs;
+	int kernelSize = aAnalizar->width * 0.01f; //kernel de 2\%
+
+	//Certificar que é um numero impar
+	if ((kernelSize % 2) == 0)
+		kernelSize++;
+
+	printf("[INFO]: Kernel de %d \n", kernelSize);
+
+	log(INFO, "A aplicar filtros de melhoramento de imagem.");
+	errorControl = meanBlur(aAnalizar, blured, kernelSize);
+
+	hsvImage = vc_image_copy(blured);
+	vc_rgb_to_hsv(hsvImage);
+
+	vc_write_image("Resultados/BluredImage.ppm", blured);
+
+	if (errorControl == 0)
+	{
+		log(ERROR, "Erro ao aplicar filtro blur.");
+		return 0;
+	}
+
+	log(INFO, "A extrair sinais de transito.");
+	errorControl = getSignals(blured, binary, hsvImage);
+
+	if (errorControl == 0)
+	{
+		log(ERROR, "Erro ao indentificar sinais. Metodo getSignals.");
+		return 0;
+	}
+
+	log(INFO, "A fazer etiquetagem.");
+	blobs = vc_binary_blob_labelling(binary, blobLabels, &nlabels);
+
+	vc_write_image("Resultados/labels.pgm", blobLabels);
+
+	printf("[INFO]: Foram encontrados %d blobs. \n", nlabels);
+
+	log(INFO, "A recolher informacoes sobre os blobs.");
+	errorControl = vc_binary_blob_info(blobLabels, blobs, nlabels);
+
+	vc_write_image("Resultados/binary.pgm", binary);
+
+	log(INFO, "A analizar blobs.");
+	analizaBlobs(blobs, nlabels, blobLabels, aAnalizar, binary, hsvImage);
+
+	log(INFO, "A Libertar memoria...");
+	//Libertar memória
+	vc_image_free(aAnalizar);
+	vc_image_free(blured);
+	vc_image_free(binary);
+	vc_image_free(blobLabels);
+	free(blobs);
+
+	return 1;
+}
+
+
+//Vai analizar individualmente cada blob encontrado
+int analizaBlobs(OVC *blobs, int nlabels, IVC *labels, IVC *original, IVC *binaryImage, IVC *hsvImage) {
+
+	IVC *tmp;
+	int x, y, i, reds, blues;
+	Shape forma;
+	Signal sinal;
+
+	drawBoundingBox(original, blobs, &nlabels, newColor(255, 0, 0));
+	vc_write_image("Resultados/boxes.ppm", original);
+	//Percorrer todos os blobs encontrados
+	for (i = 0; i < nlabels; i++)
+	{
+		
+
+		//Só interessam blobs maiores que 10% da imagem e blobs menores que 90%
+		if (blobs[i].width < (original->width * 0.10f) || blobs[i].width > (original->width * 0.95f))
+			continue;
+
+		//Só interessam blobs quadrados. 15 pixeis é a margem de erro
+		if ((blobs[i].width - blobs[i].height) <= -15 || (blobs[i].width - blobs[i].height) >= 15)
+			continue;
+
+		log(INFO, "Potencial sinal encontrado.");
+
+		forma = getBlobShape(blobs[i], binaryImage);
+
+		sinal = identifySignal(blobs[i], forma, original, binaryImage, hsvImage);
+
+		switch (sinal)
+		{
+		case FORBIDDEN:
+			log(SUCCESS, "Sinal de proibido encontrado!");
+			break;
+
+		case STOP:
+			log(SUCCESS, "Sinal de STOP encontrado!");
+			break;
+
+		case ARROWLEFT:
+			log(SUCCESS, "Sinal de seta para a esquerda encontrado!");
+			break;
+
+		case ARROWRIGHT:
+			log(SUCCESS, "Sinal de seta para a direita encontrado!");
+			break;
+
+		case ARROWUP:
+			log(SUCCESS, "Sinal de seta para cima encontrado!");
+			break;
+
+		case CAR:
+			log(SUCCESS, "Sinal de carro encontrado!");
+			break;
+
+		case HIGHWAY:
+			log(SUCCESS, "Sinal de auto-estrada encontrado!");
+			break;
+
+		default:
+			log(WARNING, "Um blob que potencialmente era um sinal nao foi identificado.");
+			break;
+		}
+
+	}
+
+	//vc_image_free(tmp);
+	return 1;
+}
+
+Signal identifySignal(OVC blob, Shape shape, IVC *original, IVC *binaria, IVC *hsvImage) {
+
+	int x, y, i, posOriginal, posBinaria;
+	int azuis = 0;
+	int vermelhos = 0;
+	int trocasCor = 0;
+	float offset = 0.05f;
+	int blobxMax = (int) (blob.x + blob.width) - (blob.width * offset);
+	int blobxMin = (int) blob.x + (blob.width * offset);
+	int yMid = blob.y + (blob.height / 2); //Meio da imagem horizontal
+	int xMid = blob.x + (blob.width / 2);
+	int lastColor = 255;
+	int h, s, v;
+	Signal sinal = UNDEFINED;
+
+	printf("yx: %d - xc: %d");
+
+	//Percorrer horizontal a meio do blob cortando 5% às lateriais
+	for (x = blobxMin; x < blobxMax; x++)
+	{
+		posOriginal = yMid * original->bytesperline + x * original->channels;
+		posBinaria = yMid * binaria->bytesperline + x * binaria->channels;
+
+		h = hue255To360(hsvImage->data[posOriginal]);
+		s = value255To100(hsvImage->data[posOriginal + 1]);
+		v = value255To100(hsvImage->data[posOriginal + 2]);
+		
+		if (isBlue(h, s, v) == true)
+			azuis++;
+
+		if (isRed(h, s, v) == true)
+			vermelhos++;
+
+		if ((int)binaria->data[posBinaria] != lastColor) {
+			trocasCor++;
+			lastColor = (int)binaria->data[posBinaria];
+		}
+
+	}
+
+
+	//Verificar Sinais vermelhos
+	if (vermelhos > azuis)
+	{
+
+		if (shape == CIRCLE) //Sinais circulares
+		{
+			if (trocasCor < 3) // Sinal de proibido
+				sinal = FORBIDDEN;
+
+			if (trocasCor > 4) // Sinal de STOP
+				sinal = STOP;
+		}
+	}
+	else //Sinais azuis
+	{
+		if (shape == SQUARE) //Sinais quadrados
+		{
+			if (trocasCor < 5) //Auto-estrada
+				sinal = HIGHWAY;
+
+			if (trocasCor >= 5) //Carro
+				sinal = CAR;
+		}
+
+		if (shape == CIRCLE) //Sinais circulares
+		{
+
+		}
+	}
+
+	//Verificar se é Auto- Estrada
+	if (azuis > vermelhos && trocasCor < 5 && shape == SQUARE)
+		sinal = HIGHWAY;
+
+	//Verificar se é Carro
+	if (azuis > vermelhos && trocasCor >= 5 && shape == SQUARE)
+		sinal = CAR;
+
+	//Setas
+	if (azuis > vermelhos && shape == SQUARE)
+	{
+
+	}
+
+	return sinal;
+}
+
 //Extrai apenas os sinais azuis para binario
-int blueSignalsToBinary(IVC *src, IVC *dst) {
+int blueSignalsToBinary(IVC *src, IVC *dst, IVC *hsvImage) {
 
 	int x, y, i, pos, posBinary;
-	vc_write_image("Resultados/src.ppm", src);
-	vc_write_image("Resultados/dst.pgm", dst);
-
-	IVC *hsvImage = vc_image_copy(src);
-	vc_write_image("Resultados/srcCopied.pgm", hsvImage);
-	
-	vc_rgb_to_hsv(hsvImage);
-	vc_write_image("Resultados/hsvImage.pgm", hsvImage);
 
 	int hue, sat, value;
 
@@ -41,7 +268,7 @@ int blueSignalsToBinary(IVC *src, IVC *dst) {
 			sat = hsvImage->data[pos + 1];
 			value = hsvImage->data[pos + 2];
 
-			if ((hue >= hue360To255(218) && hue <= hue360To255(264)) && (value >= value100To255(13) && value <= value100To255(60)))
+			if ((hue >= hue360To255(214) && hue <= hue360To255(269)) && (value >= value100To255(15) && value <= value100To255(60)) && (sat >= value100To255(15) && sat <= value100To255(100)))
 				dst->data[posBinary] = 255;
 			else
 				dst->data[posBinary] = 0;
@@ -49,23 +276,13 @@ int blueSignalsToBinary(IVC *src, IVC *dst) {
 		}
 	}
 
-	free(hsvImage);
 	return 1;
 }
 
 //Extrai apenas os sinais vermelhos para binario
-int redSignalsToBinary(IVC *src, IVC *dst) {
+int redSignalsToBinary(IVC *src, IVC *dst, IVC *hsvImage) {
 
 	int x, y, i, pos, posBinary;
-	vc_write_image("Resultados/src.ppm", src);
-	vc_write_image("Resultados/dst.pgm", dst);
-
-	IVC *hsvImage = vc_image_copy(src);
-	vc_write_image("Resultados/srcCopied.pgm", hsvImage);
-
-	vc_rgb_to_hsv(hsvImage);
-	vc_write_image("Resultados/hsvImage.pgm", hsvImage);
-
 	int hue, sat, value;
 
 	if (dst->channels != 1)
@@ -83,60 +300,166 @@ int redSignalsToBinary(IVC *src, IVC *dst) {
 			sat = hsvImage->data[pos + 1];
 			value = hsvImage->data[pos + 2];
 
-			if ((hue >= hue360To255(350) && hue <= hue360To255(360)) && (sat >= value100To255(60) && sat <= value100To255(100)) && (value >= value100To255(31) && value <= value100To255(71)))
-				dst->data[posBinary] = 255;
-			else if((hue >= hue360To255(0) && hue <= hue360To255(7)) && (sat >= value100To255(60) && sat <= value100To255(100)) && (value >= value100To255(31) && value <= value100To255(71))) //O vermelho ocupa as duas pontas do cone
-				dst->data[posBinary] = 255;
-			else
-				dst->data[posBinary] = 0; //Se calhar há uma versão mais rapida de processar com menos condições nos if's, ver mais tarde
+			//Vermelho vai de 350 a 7º
+			if ((hue >= hue360To255(350) && hue <= hue360To255(360)) || (hue >= hue360To255(0) && hue <= hue360To255(8))) {
+
+				if ((sat >= value100To255(54) && sat <= value100To255(100)) && (value >= value100To255(31) && value <= value100To255(93)))
+					dst->data[posBinary] = 255;
+				else
+					dst->data[posBinary] = 0;
+			}
+			else {
+				dst->data[posBinary] = 0;
+			}
 
 		}
 	}
 
-	free(hsvImage);
 	return 1;
 }
 
-//Diz que formato tem o blob
-Shape getBlobShape(OVC blob) {
+//Verifica se é azul. Usar valores do HSV e não de 0-255
+bool isBlue(int hue, int sat, int value) {
+	
+	if ((hue >= 213 && hue <= 269) && (sat >= 15 && sat <= 100) && (value >= 15 && value <= 60))
+		return true;
+	else
+		return false;
 
-	int boxArea, blobArea, blobPerimeter;
-	Shape formato = UNDEFINED;
-
-	boxArea = blob.width * blob.height;
-	blobArea = blob.area;
-	blobPerimeter = blob.perimeter;
-
-	if ((boxArea - blobArea) < boxArea * 0.10f) //Se a diferença da area for menos que 10% da imagem é porque e um quadrado
-		formato = SQUARE;
-
-	if ((boxArea - blobArea) > boxArea * 0.10f)
-		formato = CIRCLE;
-
-	return ;
 }
 
-//Faz blobs apenas nos sinais de transito
-int blobSignals(IVC *src, IVC *dst) {
+//Verifica se é vermelho. Usar valores do HSV e não de 0-255
+bool isRed(int hue, int sat, int value) {
 
-	int x, y, i;
-	IVC *hsv = vc_image_new(src->width, src->height, 3, 255);
-	vc_rgb_to_hsv(src);
+	//Vermelho vai de 350 a 7º
+	if ((hue >= 350 && hue <= 360) || (hue >= 0 && hue <= 8)) {
 
-	//Verificações de erros
-	if (dst->channels != 1 || src->channels != 3)
-		return 0;
-	if (src->width != dst->width || src->height != dst->height)
-		return 0;
+		if ((sat >= 54 && sat <= 100) && (value >= 31 && value <= 93))
+			return true;
+		else
+			return false;
+	}
+	else {
+		return false;
+	}
 
-	for (y = 0; y < src->height; y++)
+}
+
+//Diz que formato tem o blob
+Shape getBlobShape(OVC blob, IVC *image) {
+
+	int boxPerimeter = blob.width + blob.height + blob.width + blob.height; //Perimetro da caixa delimitadora do blob 
+	int blobPerimeter = blob.perimeter;
+	int bytesperline = image->bytesperline;
+	int channels = image->channels;
+	int difxy = (blob.width - blob.height);
+	int tl, tr, bl, br; //top left, top right...
+	float offset = 0.10f; //Distancia dentro da boundingbox que vai viajar para dentro
+	Shape shape = UNDEFINED;
+
+	tl = ((blob.y + (int) (blob.height * offset)) * bytesperline + ((blob.x + (int) (blob.width * offset)) * channels));
+
+
+	if (difxy >= -10 && difxy <= 10)
 	{
-		for (x = 0; x < src->width; x++)
+		//Se Encontrar branco é porque é um quadrado e se for preto e porque é um circulo
+		if (image->data[tl] == 0)//Circulo
+			shape = CIRCLE;
+		else //Quadrado
+			shape = SQUARE;
+	}
+	
+	return shape;
+}
+
+//Retorna uma imagem binaria com os sinais a branco
+int getSignals(IVC *src, IVC *dst, IVC *hsvImage) {
+
+	IVC *blueSignals = vc_image_new(src->width, src->height, 1, 255);
+	IVC *redSignals = vc_image_new(src->width, src->height, 1, 255);
+	IVC *blueClosed = vc_image_copy(blueSignals);
+	IVC *redClosed = vc_image_copy(redSignals);
+	IVC *blueOpened = vc_image_copy(blueSignals);
+	IVC *redOpened = vc_image_copy(redSignals);
+	int kernelSize = blueSignals->width * 0.02f; //kernel de 2\%
+
+	//Certificar que é um numero impar
+	if ((kernelSize % 2) == 0)
+		kernelSize++;
+
+	//Converter sinais azuis para binario e verificar se nao houve problemas
+	if (blueSignalsToBinary(src, blueSignals, hsvImage) == 0)
+		return 0;
+
+	//Fechar a imagem com o kernel definido
+	if (vc_binary_close(blueSignals, blueClosed, kernelSize, kernelSize) == 0)
+		return 0;
+
+	vc_binary_open(blueSignals, blueOpened, kernelSize, kernelSize);
+
+	//Converter vermelhos para binario e verificar se nao houve problemas
+	if (redSignalsToBinary(src, redSignals, hsvImage) == 0)
+		return 0;
+
+	vc_write_image("Resultados/redSignals.ppm", redSignals);
+	vc_write_image("Resultados/blueSignals.ppm", blueSignals);
+
+	//Fechar a imagem com kernel definido
+	if (vc_binary_close(redSignals, redClosed, kernelSize, kernelSize) == 0)
+		return 0;
+
+	vc_binary_open(redSignals, redOpened, kernelSize, kernelSize);
+
+	vc_write_image("Resultados/redClosed.ppm", redClosed);
+	vc_write_image("Resultados/redOpened.ppm", redOpened);
+	vc_write_image("Resultados/blueOpened.ppm", blueOpened);
+	vc_write_image("Resultados/blueClosed.ppm", blueClosed);
+
+	//Somar as duas imagens binarias, para permitir reconhecer mais do que 1 sinal de cada imagem
+	*dst = *sumBinaryImages(blueClosed, redClosed);
+
+	vc_write_image("Resultados/dstEMGetSignals.pgm", dst);
+
+	//verificar se nao houve problemas na soma
+	if (dst == NULL)
+		return 0;
+
+	vc_image_free(blueSignals);
+	vc_image_free(redSignals);
+	vc_image_free(blueOpened);
+	vc_image_free(redOpened);
+	vc_image_free(blueClosed);
+	vc_image_free(redClosed);
+
+	return 1;
+}
+
+IVC* sumBinaryImages(IVC *imagem1, IVC *imagem2) {
+
+	int x, y, i, pos;
+	IVC *resultado = vc_image_new(imagem1->width, imagem1->height, 1, 255);
+
+	//Verificar imagens
+	if ((imagem1->width != imagem2->width) || (imagem1->height != imagem2->height) || (imagem1->channels != imagem2->channels))
+		return NULL;
+
+	for (y = 0; y < imagem1->height; y++)
+	{
+		for (x = 0; x < imagem1->width; x++)
 		{
 
+			pos = y * imagem1->bytesperline + x * imagem1->channels;
+
+			if ( ((int) imagem1->data[pos]) == 255 || ((int) imagem2->data[pos]) == 255)
+				resultado->data[pos] = ((unsigned char) 255);
+			else
+				resultado->data[pos] = ((unsigned char) 0);
 		}
 	}
 
+	vc_write_image("Resultados/resultadoEmSum.pgm", resultado);
+
+	return resultado;
 }
 
 int hue360To255(int hue) {
@@ -174,7 +497,7 @@ int countBluePixels(IVC *imagem) {
 			value = hsvImage->data[position + 2];
 
 			//Caso o pixel seja azul incrementa o contador
-			if ((hue >= hue360To255(218) && hue <= hue360To255(264)) && (value >= value100To255(13) && value <= value100To255(60))) { //Vai buscar so a componente H de HSV
+			if ((hue >= hue360To255(214) && hue <= hue360To255(269)) && (value >= value100To255(15) && value <= value100To255(60)) && (sat >= value100To255(15) && sat <= value100To255(100))) {
 				contador++;
 			}
 		}
@@ -204,10 +527,11 @@ int countRedPixels(IVC *imagem) {
 			value = hsvImage->data[position + 2];
 
 			//Caso o pixel seja azul incrementa o contador
-			if ((hue >= hue360To255(350) && hue <= hue360To255(360)) && (sat >= value100To255(60) && sat <= value100To255(100)) && (value >= value100To255(31) && value <= value100To255(71)))//Vai buscar so a componente H de HSV
-				contador++;
-			else if ((hue >= hue360To255(0) && hue <= hue360To255(7)) && (sat >= value100To255(60) && sat <= value100To255(100)) && (value >= value100To255(31) && value <= value100To255(71)))
-				contador++;
+			if ((hue >= hue360To255(350) && hue <= hue360To255(360)) || (hue >= hue360To255(0) && hue <= hue360To255(8))) {
+
+				if ((sat >= value100To255(54) && sat <= value100To255(100)) && (value >= value100To255(31) && value <= value100To255(93)))
+					contador++;
+			}
 
 		}
 	}
@@ -1041,8 +1365,24 @@ int vc_gray_histogram_equalization(IVC *src, IVC *dst) {
 }
 #pragma endregion
 
-
 #pragma region OUTROS
+
+void log(LogType tipo, char *mensagem) {
+
+	if (tipo == ERROR)
+		printf("[ERRO]: %s \n", mensagem);
+
+	if (tipo == SUCCESS)
+		printf("[SUCESSO]: %s \n", mensagem);
+
+	if (tipo == WARNING)
+		printf("[AVISO]: %s \n", mensagem);
+
+	if (tipo == INFO)
+		printf("[INFO]: %s \n", mensagem);
+
+	return;
+}
 
 COLOR* newColor(int r, int g, int b) {
 

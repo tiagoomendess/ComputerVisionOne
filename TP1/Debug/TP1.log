@@ -1,13 +1,3 @@
 ﻿  main.c
-  ca.c
-d:\dropbox\ipca\lesi\2ª ano\2º semestre\visão por computador\tp_vc\tp1\tp1\ca.c(44): warning C4013: 'hue360To255' undefined; assuming extern returning int
-d:\dropbox\ipca\lesi\2ª ano\2º semestre\visão por computador\tp_vc\tp1\tp1\ca.c(17): warning C4101: 'i': unreferenced local variable
-d:\dropbox\ipca\lesi\2ª ano\2º semestre\visão por computador\tp_vc\tp1\tp1\ca.c(59): warning C4101: 'i': unreferenced local variable
-d:\dropbox\ipca\lesi\2ª ano\2º semestre\visão por computador\tp_vc\tp1\tp1\ca.c(113): error C2059: syntax error: ')'
-d:\dropbox\ipca\lesi\2ª ano\2º semestre\visão por computador\tp_vc\tp1\tp1\ca.c(116): warning C4033: 'getBlobShape' must return a value
-d:\dropbox\ipca\lesi\2ª ano\2º semestre\visão por computador\tp_vc\tp1\tp1\ca.c(776): warning C4244: '=': conversion from 'int' to 'float', possible loss of data
-d:\dropbox\ipca\lesi\2ª ano\2º semestre\visão por computador\tp_vc\tp1\tp1\ca.c(777): warning C4244: '=': conversion from 'int' to 'float', possible loss of data
-d:\dropbox\ipca\lesi\2ª ano\2º semestre\visão por computador\tp_vc\tp1\tp1\ca.c(830): warning C4013: 'pow' undefined; assuming extern returning int
-d:\dropbox\ipca\lesi\2ª ano\2º semestre\visão por computador\tp_vc\tp1\tp1\ca.c(835): warning C4013: 'sqrt' undefined; assuming extern returning int
-d:\dropbox\ipca\lesi\2ª ano\2º semestre\visão por computador\tp_vc\tp1\tp1\ca.c(837): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
-  Generating Code...
+  TP1.vcxproj -> D:\Dropbox\IPCA\LESI\2ª Ano\2º Semestre\Visão por computador\TP_VC\TP1\Debug\TP1.exe
+  TP1.vcxproj -> D:\Dropbox\IPCA\LESI\2ª Ano\2º Semestre\Visão por computador\TP_VC\TP1\Debug\TP1.pdb (Full PDB)
