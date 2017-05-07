@@ -171,9 +171,11 @@ Signal identifySignal(OVC blob, Shape shape, IVC *original, IVC *binaria, IVC *h
 	int xMid = blob.x + (blob.width / 2);
 	int lastColor = 255;
 	int h, s, v;
+	int deslocamentoX = xMid - blob.xc;
+	int deslocamentoY = yMid - blob.yc;
 	Signal sinal = UNDEFINED;
 
-	printf("yx: %d - xc: %d");
+	printf("yx: %d - xc: %d\n", blob.yc, blob.xc);
 
 	//Percorrer horizontal a meio do blob cortando 5% às lateriais
 	for (x = blobxMin; x < blobxMax; x++)
@@ -225,7 +227,21 @@ Signal identifySignal(OVC blob, Shape shape, IVC *original, IVC *binaria, IVC *h
 
 		if (shape == CIRCLE) //Sinais circulares
 		{
+			if (abs(deslocamentoX) > abs(deslocamentoY)) //Significa que é uma seta para a direita ou para a esquerda
+			{
+				if (deslocamentoX < 0) //Seta para a esquerda
+					sinal = ARROWLEFT;
+				else //Seta para a direita
+					sinal = ARROWRIGHT;
+			}
+			else //Significa que e uma seta para cima ou para baixo
+			{
+				if (deslocamentoY < 0) //Seta para cima
+					sinal = ARROWUP;
+				else
+					sinal = UNDEFINED; //Não existe seta para baixo
 
+			}
 		}
 	}
 

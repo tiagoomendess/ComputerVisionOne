@@ -5,7 +5,7 @@
 
 int main(void) {
 
-	analiza("Imagens/Sinais/ArrowLeft.ppm");
+	analiza("Imagens/Sinais1/ArrowRight1.ppm");
 	log(INFO, "Feito!");
 	return 1;
 }
